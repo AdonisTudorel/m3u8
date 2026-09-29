@@ -103,7 +103,7 @@ function m3uManifest(origin, configured) {
     catalogs: [{ type: 'series', id: M3U_CATALOG, name: 'M3U Playlist' }],
     // Without a playlist in the link, Stremio shows "Configure", which leads to the home page.
     behaviorHints: configured ? {} : { configurable: true, configurationRequired: true },
-    background: `${origin}/background.jpg`,
+    background: `${origin}/poster.svg`,
   };
 }
 
@@ -233,7 +233,7 @@ function torboxManifest(origin) {
     types: ['series'],
     idPrefixes: [TORBOX_PREFIX],
     catalogs: [{ type: 'series', id: TORBOX_CATALOG, name: TORBOX_NAME }],
-    background: `${origin}/background.jpg`,
+    background: `${origin}/poster.svg`,
   };
 }
 
@@ -432,24 +432,31 @@ async function sameSecret(given, expected) {
 // Web pages
 // ---------------------------------------------------------------------------------------------
 
+const LOGO = `<img class="logo" src="/poster.svg" alt="" width="56" height="56">`;
+
 function homePage(env, { m3uError = '', url = '', torboxError = '' } = {}) {
   const torbox = torboxEnabled(env)
-    ? `<h3>TorBox Playlist</h3>
-      ${torboxError ? `<p class="error">Error: ${escapeHtml(torboxError)}</p>` : ''}
+    ? `<div class="divider"></div>
+      <h3>TorBox Playlist</h3>
+      ${torboxError ? `<p class="error">${escapeHtml(torboxError)}</p>` : ''}
       <form action="/torbox" method="POST">
-        <input type="password" name="secret" placeholder="Your ADDON_SECRET" aria-label="Addon secret" autocomplete="current-password" required><br>
+        <input type="password" name="secret" placeholder="Your ADDON_SECRET" aria-label="Addon secret" autocomplete="current-password" required>
         <button type="submit">Get TorBox Install Link</button>
       </form>`
-    : `<p>TorBox playlist is off. Add the secrets TORBOX_API_KEY and ADDON_SECRET (at least ${MIN_SECRET_LENGTH} characters) to this Worker to turn it on.</p>`;
+    : `<div class="divider"></div>
+      <p class="note">TorBox playlist is off. Add the secrets TORBOX_API_KEY and ADDON_SECRET (at least ${MIN_SECRET_LENGTH} characters) to this Worker to enable it.</p>`;
   return renderPage('Stremio M3U & TorBox Addon', `
-    <h1>Stremio M3U & Direct Video Addon</h1>
-    <h3>Paste M3U Playlist or Direct Video URL</h3>
-    ${m3uError ? `<p class="error">Error: ${escapeHtml(m3uError)}</p>` : ''}
-    <form action="/validate" method="POST">
-      <input type="url" name="url" placeholder="Enter URL" aria-label="Playlist or video URL" value="${escapeHtml(url)}" required><br>
-      <button type="submit">Validate Link</button>
-    </form>
-    ${torbox}`);
+    ${LOGO}
+    <h1>M3U & TorBox Addon</h1>
+    <p class="subtitle">Paste an M3U playlist or direct video URL</p>
+    <div class="card">
+      ${m3uError ? `<p class="error">${escapeHtml(m3uError)}</p>` : ''}
+      <form action="/validate" method="POST">
+        <input type="url" name="url" placeholder="https://example.com/playlist.m3u" aria-label="Playlist or video URL" value="${escapeHtml(url)}" required>
+        <button type="submit">Validate Link</button>
+      </form>
+      ${torbox}
+    </div>`);
 }
 
 async function validateM3u(request, env, origin) {
@@ -511,15 +518,18 @@ async function torboxLinkPage(request, env, origin) {
 function installPage({ summary, manifestUrl, playlistName, extra }) {
   const installUrl = manifestUrl.replace(/^https?:\/\//, 'stremio://');
   return renderPage('Install in Stremio', `
-    <h1>Stremio M3U & Direct Video Addon</h1>
-    <p class="success">${escapeHtml(summary)}</p>
-    <p><a href="${escapeHtml(installUrl)}">Install in Stremio</a></p>
-    <p>Or copy this manifest URL and paste it into Stremio's addon search to install:</p>
-    <p><a href="${escapeHtml(manifestUrl)}">${escapeHtml(manifestUrl)}</a></p>
-    <p>In Stremio, open "${escapeHtml(playlistName)}" from the home screen and play the first episode.<br>
-    The next video starts automatically when one ends, and your progress shows up in Continue Watching.</p>
-    ${extra}
-    <a href="/">Back to Home</a>`);
+    ${LOGO}
+    <h1>M3U & TorBox Addon</h1>
+    <div class="card">
+      <p class="success">${escapeHtml(summary)}</p>
+      <a class="btn" href="${escapeHtml(installUrl)}">Install in Stremio</a>
+      <p class="info">Or copy the manifest URL:</p>
+      <div class="manifest-url"><a href="${escapeHtml(manifestUrl)}">${escapeHtml(manifestUrl)}</a></div>
+      <p class="info">Open "${escapeHtml(playlistName)}" from the Stremio home screen and play the first episode.<br>
+      The next video starts automatically and your progress shows up in Continue Watching.</p>
+      ${extra}
+    </div>
+    <a href="/">← Back to Home</a>`);
 }
 
 async function dashboard(url) {
@@ -537,23 +547,31 @@ async function dashboard(url) {
     ? playlist.items.map((v) => `<li>${escapeHtml(v.title)}: <a href="${escapeHtml(v.url)}">${escapeHtml(v.url)}</a></li>`).join('')
     : '';
   return htmlResponse(renderPage('M3U/Direct Video Dashboard', `
-    <h1>M3U/Direct Video Dashboard</h1>
-    <p>Configured: ${playlist ? `${escapeHtml(playlist.kind)} - ${escapeHtml(playlistUrl)}` : 'None - No URL'}</p>
-    ${error ? `<p class="error">Error: ${escapeHtml(error)}</p>` : ''}
-    <h2>Videos</h2>
-    <ul>${videoList || '<li>No videos configured</li>'}</ul>
-    <a href="/">Back to Home</a>`));
+    ${LOGO}
+    <h1>Dashboard</h1>
+    <div class="card">
+      <p class="info">Configured: ${playlist ? `${escapeHtml(playlist.kind)} — ${escapeHtml(playlistUrl)}` : 'None'}</p>
+      ${error ? `<p class="error">${escapeHtml(error)}</p>` : ''}
+      <h2>Videos</h2>
+      <ul>${videoList || '<li>No videos configured</li>'}</ul>
+    </div>
+    <a href="/">← Back to Home</a>`));
 }
 
 function notFound() {
-  return htmlResponse(renderPage('Not found', '<h1>Not found</h1><a href="/">Back to Home</a>'), 404);
+  return htmlResponse(renderPage('Not found', `
+    ${LOGO}
+    <h1>404</h1>
+    <p class="info">Page not found</p>
+    <a class="btn" href="/">Back to Home</a>`), 404);
 }
 
 const STYLE = `
+  *,*::before,*::after { box-sizing: border-box; }
   body {
-    background: #111 url('/background.jpg') center / cover no-repeat fixed;
-    color: white;
-    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+    color: #e0e0ef;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
     text-align: center;
     min-height: 100vh;
     display: flex;
@@ -561,58 +579,144 @@ const STYLE = `
     justify-content: center;
     align-items: center;
     margin: 0;
-    padding: 20px;
-    box-sizing: border-box;
+    padding: 32px 16px;
+    line-height: 1.5;
   }
-  h1, h2, h3 {
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.9);
-    background: rgba(0,0,0,0.7);
-    padding: 10px 20px;
-    border-radius: 5px;
+  .logo { width: 56px; height: 56px; margin-bottom: 8px; opacity: 0.9; }
+  h1 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #fff;
+    margin: 0 0 4px;
   }
-  form, ul {
-    background: rgba(0,0,0,0.8);
-    padding: 20px;
-    border-radius: 10px;
-    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+  h2 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #c8c8e0;
+    margin: 24px 0 12px;
   }
-  ul { list-style: none; max-width: 600px; }
-  li { margin: 10px 0; }
-  p { background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 5px; max-width: 90vw; overflow-wrap: anywhere; }
+  h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #a8a8cc;
+    margin: 28px 0 8px;
+  }
+  .subtitle {
+    color: #8888aa;
+    font-size: 0.85rem;
+    margin: 0 0 24px;
+  }
+  .card {
+    background: rgba(255,255,255,0.06);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 28px 24px;
+    width: 100%;
+    max-width: 460px;
+    margin: 12px 0;
+  }
+  form { display: flex; flex-direction: column; align-items: center; gap: 12px; }
   input[type="url"], input[type="password"] {
-    width: 300px;
-    max-width: 80vw;
-    padding: 10px;
-    margin: 10px 0;
-    border: none;
-    border-radius: 5px;
-    background: #fff;
-    color: #000;
+    width: 100%;
+    max-width: 380px;
+    padding: 12px 16px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    background: rgba(0,0,0,0.3);
+    color: #fff;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
   }
+  input:focus { border-color: #7b4dff; }
+  input::placeholder { color: #6a6a88; }
   button {
-    padding: 10px 20px;
-    background: #007bff;
+    padding: 12px 28px;
+    background: linear-gradient(135deg, #7b4dff, #3ea6ff);
     color: white;
     border: none;
-    border-radius: 5px;
+    border-radius: 10px;
     cursor: pointer;
-    font-weight: bold;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: opacity 0.2s, transform 0.15s;
   }
-  button:hover { background: #0056b3; }
-  p.error { color: #ff4d4d; background: rgba(0,0,0,0.7); padding: 10px; }
-  p.success { color: #4dff4d; background: rgba(0,0,0,0.7); padding: 10px; }
+  button:hover { opacity: 0.9; transform: translateY(-1px); }
+  button:active { transform: translateY(0); }
+  p { max-width: 90vw; overflow-wrap: anywhere; margin: 8px 0; }
+  p.error {
+    color: #ff6b6b;
+    background: rgba(255,60,60,0.1);
+    border: 1px solid rgba(255,60,60,0.2);
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 0.85rem;
+  }
+  p.success {
+    color: #69db7c;
+    background: rgba(60,255,100,0.08);
+    border: 1px solid rgba(60,255,100,0.15);
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 0.85rem;
+  }
   a {
-    color: #4da8ff;
+    color: #7b9dff;
     text-decoration: none;
-    margin-top: 10px;
-    display: inline-block;
-    background: rgba(0,0,0,0.7);
-    padding: 5px 10px;
-    border-radius: 5px;
-    font-weight: bold;
+    transition: color 0.2s;
     overflow-wrap: anywhere;
   }
-  a:hover { text-decoration: underline; }
+  a:hover { color: #a8c0ff; text-decoration: underline; }
+  a.btn {
+    display: inline-block;
+    padding: 10px 24px;
+    background: linear-gradient(135deg, #7b4dff, #3ea6ff);
+    color: #fff;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin: 6px 0;
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  a.btn:hover { opacity: 0.9; transform: translateY(-1px); text-decoration: none; }
+  .manifest-url {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.75rem;
+    color: #8888aa;
+    word-break: break-all;
+    margin: 8px 0;
+  }
+  .manifest-url a { color: #8888aa; }
+  .manifest-url a:hover { color: #a8c0ff; }
+  .info { color: #8888aa; font-size: 0.82rem; margin: 6px 0; }
+  .divider {
+    width: 60px;
+    height: 1px;
+    background: rgba(255,255,255,0.1);
+    margin: 20px auto;
+  }
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    text-align: left;
+    max-width: 500px;
+    width: 100%;
+  }
+  li {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.85rem;
+    color: #c0c0d8;
+  }
+  li:last-child { border-bottom: none; }
+  li a { font-size: 0.75rem; }
+  .note { font-size: 0.8rem; color: #6a6a88; }
 `;
 
 function renderPage(title, body) {
@@ -639,9 +743,9 @@ function preview(origin, id, name, count) {
     id,
     type: 'series',
     name,
-    poster: `${origin}/background.jpg`,
+    poster: `${origin}/poster.svg`,
     posterShape: 'landscape',
-    background: `${origin}/background.jpg`,
+    background: `${origin}/poster.svg`,
     description: `${count} videos`,
   };
 }

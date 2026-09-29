@@ -4,7 +4,7 @@
   "name": "stremio-m3u-addon",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-01",
-  // Serves public/background.jpg; every other path goes to the Worker.
+  // Serves public/poster.svg; every other path goes to the Worker.
   "assets": { "directory": "./public" },
   // Keeps request logs in the dashboard (Worker > Observability > Logs).
   "observability": { "enabled": true },
