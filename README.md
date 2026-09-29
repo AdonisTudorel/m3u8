@@ -5,7 +5,7 @@ A Stremio addon, running on Cloudflare Workers, that shows a playlist as a serie
 Two playlist sources:
 
 - An M3U playlist (for example a GitHub gist) or a single video link.
-- Your TorBox torrents, in the order you added them. Download links are requested from TorBox when you press play, so they don't go stale.
+- The TorBox playlist: the videos from `PLAYLIST_URL` (set in `wrangler.jsonc`) first, then your airlocked TorBox torrents in the order you added them. TorBox links inside `PLAYLIST_URL` are skipped. TorBox download links are requested when you press play, so they don't go stale.
 
 ## Deploy to Cloudflare Workers
 
