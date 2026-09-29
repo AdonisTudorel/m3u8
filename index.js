@@ -5,6 +5,8 @@ const m3u8Parser = require('m3u8-parser');
 
 // Initialize Express
 const app = express();
+// Render terminates HTTPS at its proxy; trust it so req.protocol reports "https".
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
@@ -361,7 +363,9 @@ app.post('/validate', async (req, res) => {
       config.videos = [{ id: 'direct:1', title: 'Direct Video', url }];
     }
     const encodedUrl = encodeURIComponent(url);
-    const manifestUrl = `https://m3u-ce5x.onrender.com/addon/manifest.json?url=${encodedUrl}`;
+    // Build the link from the host serving this page (your Render service, a custom domain,
+    // or localhost) instead of a hardcoded domain.
+    const manifestUrl = `${req.protocol}://${req.get('host')}/addon/manifest.json?url=${encodedUrl}`;
     res.send(`
       <html>
         <head>
