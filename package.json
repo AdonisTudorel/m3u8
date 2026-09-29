@@ -1,19 +1,12 @@
 {
   "name": "stremio-m3u-addon",
   "version": "1.0.0",
-  "description": "Stremio addon for M3U parsing and direct video playback",
-  "main": "index.js",
+  "description": "Stremio addon that plays an M3U playlist or your TorBox torrents as a series, one video after another",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
-  },
-  "dependencies": {
-    "express": "^4.21.0",
-    "m3u8-parser": "^7.1.0",
-    "node-fetch": "^2.7.0",
-    "stremio-addon-sdk": "^1.6.10"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
-    "nodemon": "^3.1.7"
+    "wrangler": "4.143.0"
   }
 }

@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Must match the Worker name in the Cloudflare dashboard when deploying from GitHub.
+  "name": "stremio-m3u-addon",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  // Serves public/background.jpg; every other path goes to the Worker.
+  "assets": { "directory": "./public" },
+  // Keeps request logs in the dashboard (Worker > Observability > Logs).
+  "observability": { "enabled": true }
+  // Secrets (set them in the dashboard or with `npx wrangler secret put <NAME>`):
+  //   TORBOX_API_KEY  your TorBox API key
+  //   ADDON_SECRET    a long random password that protects the TorBox addon link
+}
