@@ -1,4 +1,4 @@
-const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
+const { addonBuilder, getRouter } = require('stremio-addon-sdk');
 const express = require('express');
 const fetch = require('node-fetch');
 const m3u8Parser = require('m3u8-parser');
@@ -599,8 +599,10 @@ app.get('/dashboard', (req, res) => {
   `);
 });
 
-// Mount addon routes using serveHTTP
-app.use('/addon', serveHTTP(builder.getInterface()));
+// Mount addon routes on the existing Express app.
+// serveHTTP() starts its own server and returns a Promise, so it can't be used as middleware;
+// getRouter() returns a router (with CORS enabled) that serves manifest/catalog/meta/stream.
+app.use('/addon', getRouter(builder.getInterface()));
 
 // Start server
 const PORT = process.env.PORT || 7000;
