@@ -7,6 +7,8 @@ Two playlist sources:
 - An M3U playlist (for example a GitHub gist) or a single video link.
 - The TorBox playlist: the videos from `PLAYLIST_URL` (set in `wrangler.jsonc`) first, then your airlocked TorBox torrents in the order you added them. TorBox links inside `PLAYLIST_URL` are skipped. TorBox download links are requested when you press play, so they don't go stale.
 
+  To play a torrent somewhere else, add a line `#TORBOX:<words from its name>` to `PLAYLIST_URL` where it should play. As the last line, the torrent plays right after the playlist videos. Words are matched whole and ignore case, dots and dashes, so `#TORBOX:dune part two` matches `Dune.Part.Two.2024.1080p`. If several torrents match, they all play there, oldest first. A line that matches nothing shows a warning on the TorBox install page.
+
 ## Deploy to Cloudflare Workers
 
 1. In the Cloudflare dashboard, go to Workers & Pages → Create → Import a repository and pick this repo. Name the Worker `stremio-m3u-addon`: it must match `name` in `wrangler.jsonc`. Every push to `main` redeploys.
