@@ -8,20 +8,28 @@
  *   /addon/<config>/manifest.json          An M3U playlist or a single video link.
  *                                          <config> is the URL-encoded JSON {"url": "..."}.
  *   /torbox/<ADDON_SECRET>/manifest.json   The videos from PLAYLIST_URL first, then your airlocked
- *                                          TorBox torrents, oldest first. TorBox download links
- *                                          are requested when you press play.
+ *                                          TorBox downloads (torrents and web downloads), oldest
+ *                                          first. TorBox download links are requested when you
+ *                                          press play.
  *
  * Secrets (Worker > Settings > Variables and Secrets, type "Secret"):
  *   TORBOX_API_KEY  TorBox API key. Only ever sent to the TorBox API.
  *   ADDON_SECRET    Long random password (16+ characters) that protects the TorBox routes.
  * Variables (wrangler.jsonc "vars"):
  *   PLAYLIST_URL    Optional M3U playlist whose videos play before the TorBox ones. A line
- *                   "#TORBOX:<words from a torrent name>" moves that torrent to that spot.
+ *                   "#TORBOX:<words from a download name>" moves that download to that spot.
  * TORBOX_API_BASE can override the TorBox API URL for local testing.
  */
 
 const TORBOX_API = 'https://api.torbox.app/v1/api';
 const TORBOX_PAGE_SIZE = 1000;
+// TorBox keeps torrents and web downloads (direct links, file hosters) in separate lists, each with its
+// own download-link endpoint. Torrent ids and play links keep their original format, so Continue
+// Watching progress saved before web downloads were added still applies.
+const TORBOX_KINDS = {
+  torrent: { list: '/torrents/mylist', link: '/torrents/requestdl', idParam: 'torrent_id', idPart: '', playPart: '', one: 'torrent', many: 'torrents' },
+  web: { list: '/webdl/mylist', link: '/webdl/requestdl', idParam: 'web_id', idPart: 'web:', playPart: 'web/', one: 'web download', many: 'web downloads' },
+};
 const M3U_PREFIX = 'm3upl:';
 const M3U_CATALOG = 'm3u-playlist';
 const TORBOX_PREFIX = 'tbpl:';
@@ -239,7 +247,7 @@ function torboxManifest(origin) {
     id: 'org.sidh.m3uaddon.torbox',
     version: '1.1.0',
     name: TORBOX_NAME,
-    description: 'Your playlist links, then your airlocked TorBox torrents in the order you added them (a #TORBOX line in the playlist can move one). Videos play one after another and Stremio keeps your progress',
+    description: 'Your playlist links, then your airlocked TorBox torrents and web downloads in the order you added them (a #TORBOX line in the playlist can move one). Videos play one after another and Stremio keeps your progress',
     resources: ['catalog', 'meta', 'stream'],
     types: ['series'],
     idPrefixes: [TORBOX_PREFIX],
@@ -260,8 +268,9 @@ async function torboxRoute(request, env, origin, secretSegment, rest) {
   }
   if (rest === '/manifest.json') return json(torboxManifest(origin));
 
-  let match = rest.match(/^\/play\/(\d+)\/(\d+)$/);
-  if (match) return torboxPlay(request, env, match[1], match[2]);
+  // /play/<torrent id>/<file id> or /play/web/<web download id>/<file id>
+  let match = rest.match(/^\/play\/(?:(web)\/)?(\d+)\/(\d+)$/);
+  if (match) return torboxPlay(request, env, match[1] || 'torrent', match[2], match[3]);
 
   match = rest.match(/^\/(catalog|meta|stream)\/([^/]+)\/([^/]+?)(?:\/[^/]+)?\.json$/);
   const id = match && safeDecode(match[3]);
@@ -291,17 +300,18 @@ async function torboxRoute(request, env, origin, secretSegment, rest) {
   if (item.url) return json({ streams: [stream(item.url, item.source, item.title, TORBOX_META_ID, item.webReady)] });
   // TorBox streams point back to this Worker, which asks TorBox for a fresh link at play time. That keeps
   // Continue Watching working long after a saved TorBox link would have expired.
-  const playUrl = `${origin}/torbox/${encodeURIComponent(secret)}/play/${item.torrentId}/${item.fileId}`;
+  const playUrl = `${origin}/torbox/${encodeURIComponent(secret)}/play/${item.play}`;
   return json({ streams: [stream(playUrl, 'TorBox', item.title, TORBOX_META_ID, item.webReady)] });
 }
 
-// Redirect the player to a fresh TorBox download link.
-async function torboxPlay(request, env, torrentId, fileId) {
-  console.log(`TorBox play ${torrentId}/${fileId}`);
-  const link = await cached(`torbox-link:${torrentId}:${fileId}`, LINK_TTL_MS, async () => {
+// Redirect the player to a fresh TorBox download link. `kind` is a key of TORBOX_KINDS.
+async function torboxPlay(request, env, kind, downloadId, fileId) {
+  const { link: endpoint, idParam } = TORBOX_KINDS[kind];
+  console.log(`TorBox play ${kind} ${downloadId}/${fileId}`);
+  const link = await cached(`torbox-link:${kind}:${downloadId}:${fileId}`, LINK_TTL_MS, async () => {
     const params = new URLSearchParams({
       token: env.TORBOX_API_KEY,
-      torrent_id: torrentId,
+      [idParam]: downloadId,
       file_id: fileId,
       zip_link: 'false',
       redirect: 'false',
@@ -309,7 +319,7 @@ async function torboxPlay(request, env, torrentId, fileId) {
     // Lets TorBox pick the CDN server closest to the viewer.
     const ip = request.headers.get('CF-Connecting-IP');
     if (ip) params.set('user_ip', ip);
-    const data = await torboxApi(env, `/torrents/requestdl?${params}`);
+    const data = await torboxApi(env, `${endpoint}?${params}`);
     if (typeof data !== 'string' || !/^https?:\/\//.test(data)) throw new Error('TorBox did not return a download link');
     return data;
   });
@@ -317,14 +327,24 @@ async function torboxPlay(request, env, torrentId, fileId) {
 }
 
 // The TorBox playlist: videos from PLAYLIST_URL first (e.g. the Dropbox links in a gist), then the
-// airlocked TorBox torrents, oldest first (the order you added them).
-// A "#TORBOX:<words>" line in PLAYLIST_URL plays the torrents whose name (or video title) has those
+// airlocked TorBox torrents and web downloads together, oldest first (the order you added them).
+// A "#TORBOX:<words>" line in PLAYLIST_URL plays the downloads whose name (or video title) has those
 // words at that spot instead, oldest first if several match. As the last line of the playlist it
 // puts them right after the playlist videos.
-// Both parts are cached on their own, so a playlist that fails to load is retried on the next request.
+// Every part is cached on its own, so a list that fails to load is retried on the next request.
 async function torboxLibrary(env) {
-  const [extra, torrents] = await Promise.all([extraPlaylist(env), torboxTorrents(env)]);
-  const torbox = buildTorboxPlaylist(torrents);
+  let webError = '';
+  const [extra, torrents, web] = await Promise.all([
+    extraPlaylist(env),
+    torboxDownloads(env, 'torrent'),
+    // Web downloads are extra: if TorBox won't list them, the torrents still play.
+    torboxDownloads(env, 'web').catch((error) => {
+      console.error(`TorBox web downloads: ${error.message}`);
+      webError = error.message;
+      return [];
+    }),
+  ]);
+  const torbox = buildTorboxPlaylist({ torrent: torrents, web });
   const items = [];
   const placed = new Set();
   const unmatched = [];
@@ -337,7 +357,7 @@ async function torboxLibrary(env) {
     const hits = words ? torbox.groups.filter((group) => group.names.some((name) => name.includes(words))) : [];
     if (!hits.length) unmatched.push(entry.torbox);
     for (const group of hits) {
-      // A torrent plays only once: the first line that matches it wins.
+      // A download plays only once: the first line that matches it wins.
       if (placed.has(group)) continue;
       placed.add(group);
       items.push(...group.items);
@@ -348,11 +368,10 @@ async function torboxLibrary(env) {
     items,
     extraCount: extra.entries.filter((entry) => !entry.torbox).length,
     extraError: extra.error,
+    webError,
     placedCount: placed.size,
     unmatched,
-    torrentCount: torbox.torrentCount,
-    chosenCount: torbox.chosenCount,
-    airlockKnown: torbox.airlockKnown,
+    kinds: torbox.kinds,
   };
 }
 
@@ -364,24 +383,26 @@ function matchText(text) {
   return words ? ` ${words} ` : '';
 }
 
-function torboxTorrents(env) {
-  return cached('torbox-torrents', PLAYLIST_TTL_MS, async () => {
-    const torrents = new Map();
+// Every download of one kind (a key of TORBOX_KINDS) on the TorBox account.
+function torboxDownloads(env, kind) {
+  const { list: endpoint, many } = TORBOX_KINDS[kind];
+  return cached(`torbox-${kind}`, PLAYLIST_TTL_MS, async () => {
+    const downloads = new Map();
     // mylist is paginated. Stop at a page that isn't full or adds nothing new (20 pages at most).
     for (let page = 0; page < 20; page += 1) {
-      const data = await torboxApi(env, `/torrents/mylist?offset=${page * TORBOX_PAGE_SIZE}&limit=${TORBOX_PAGE_SIZE}`);
+      const data = await torboxApi(env, `${endpoint}?offset=${page * TORBOX_PAGE_SIZE}&limit=${TORBOX_PAGE_SIZE}`);
       const list = Array.isArray(data) ? data : [];
-      const before = torrents.size;
-      for (const torrent of list) if (torrent && torrent.id != null) torrents.set(torrent.id, torrent);
-      if (list.length < TORBOX_PAGE_SIZE || torrents.size === before) break;
+      const before = downloads.size;
+      for (const download of list) if (download && download.id != null) downloads.set(download.id, download);
+      if (list.length < TORBOX_PAGE_SIZE || downloads.size === before) break;
     }
-    console.log(`TorBox: ${torrents.size} torrents`);
-    return [...torrents.values()];
+    console.log(`TorBox: ${downloads.size} ${many}`);
+    return [...downloads.values()];
   });
 }
 
 // Videos from PLAYLIST_URL, in playlist order, with its "#TORBOX:" lines kept in place. TorBox CDN
-// links are skipped: they expire, and the airlocked torrents below provide fresh ones.
+// links are skipped: they expire, and the airlocked downloads below provide fresh ones.
 async function extraPlaylist(env) {
   const playlistUrl = String(env.PLAYLIST_URL || '').trim();
   if (!playlistUrl) return { entries: [] };
@@ -410,50 +431,65 @@ async function extraPlaylist(env) {
   }
 }
 
-function buildTorboxPlaylist(torrents) {
-  // Only airlocked torrents. If TorBox doesn't report the flag at all, every torrent is used and the
-  // install page says so.
-  const airlockKnown = torrents.some((t) => typeof t.airlocked === 'boolean');
-  const chosen = airlockKnown ? torrents.filter((t) => t.airlocked === true) : torrents;
-  // Torrents without a date go last; ties are broken by id (TorBox ids grow as you add torrents).
-  const addedAt = (torrent) => {
-    const time = Date.parse(torrent.created_at);
+// `lists` holds the TorBox lists by kind: { torrent: [...], web: [...] }.
+function buildTorboxPlaylist(lists) {
+  const kinds = {};
+  const chosen = [];
+  for (const [kind, list] of Object.entries(lists)) {
+    // Only airlocked downloads. If TorBox doesn't report the flag for a kind at all, every download of
+    // that kind is used and the install page says so.
+    const airlockKnown = list.some((d) => typeof d.airlocked === 'boolean');
+    const picked = airlockKnown ? list.filter((d) => d.airlocked === true) : list;
+    kinds[kind] = { total: list.length, chosen: picked.length, airlockKnown };
+    for (const download of picked) chosen.push({ kind, download });
+  }
+  // Downloads without a date go last. Ties are broken by kind, then by id (TorBox ids grow as you add
+  // downloads).
+  const addedAt = ({ download }) => {
+    const time = Date.parse(download.created_at);
     return Number.isNaN(time) ? Infinity : time;
   };
+  const kindOrder = Object.keys(lists);
   const ready = chosen
-    // Skip torrents that are still downloading or whose files are gone.
-    .filter((t) => Array.isArray(t.files) && t.download_present !== false && t.download_finished !== false)
-    .sort((a, b) => (addedAt(a) - addedAt(b)) || Number(a.id) - Number(b.id));
-  // One group per torrent, so a "#TORBOX:" line can move all of a torrent's videos together.
+    // Skip downloads that are still downloading or whose files are gone.
+    .filter(({ download: d }) => Array.isArray(d.files) && d.download_present !== false && d.download_finished !== false)
+    .sort((a, b) => (addedAt(a) - addedAt(b)) || (kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind))
+      || Number(a.download.id) - Number(b.download.id));
+  // One group per download, so a "#TORBOX:" line can move all of a download's videos together.
   const groups = [];
-  for (const torrent of ready) {
-    const videos = torrent.files.filter((file) => file && file.id != null && isVideoFile(file));
+  for (const { kind, download } of ready) {
+    const { idPart, playPart } = TORBOX_KINDS[kind];
+    const videos = download.files.filter((file) => file && file.id != null && isVideoFile(file, kind === 'web'));
     const withoutSamples = videos.filter((file) => !/\bsample\b/i.test(torboxFileName(file)));
     const files = (withoutSamples.length ? withoutSamples : videos).sort((a, b) =>
       torboxFileName(a).localeCompare(torboxFileName(b), undefined, { numeric: true, sensitivity: 'base' }));
     const items = files.map((file) => {
       const title = torboxFileName(file).replace(/\.\w{2,4}$/, '');
       return {
-        id: `${TORBOX_PREFIX}${torrent.id}:${file.id}`,
-        torrentId: torrent.id,
-        fileId: file.id,
-        title: files.length > 1 ? `${torrent.name} - ${title}` : title,
+        id: `${TORBOX_PREFIX}${idPart}${download.id}:${file.id}`,
+        play: `${playPart}${download.id}/${file.id}`,
+        title: files.length > 1 ? `${download.name} - ${title}` : title,
         webReady: WEB_READY_FILE.test(torboxFileName(file)),
       };
     });
-    // A "#TORBOX:" line can use words from the torrent name or from a title shown in Stremio.
-    const names = [torrent.name || '', ...items.map((item) => item.title)].map(matchText);
+    // A "#TORBOX:" line can use words from the download name or from a title shown in Stremio.
+    const names = [download.name || '', ...items.map((item) => item.title)].map(matchText);
     if (items.length) groups.push({ items, names });
   }
-  return { groups, torrentCount: torrents.length, chosenCount: chosen.length, airlockKnown };
+  return { groups, kinds };
 }
 
 function torboxFileName(file) {
   return String(file.short_name || String(file.name || '').split('/').pop() || '');
 }
 
-function isVideoFile(file) {
-  return String(file.mimetype || '').startsWith('video/') || VIDEO_FILE.test(torboxFileName(file));
+// A web download keeps the name of the file it came from, which may have no extension at all (some
+// Dropbox links do). With `allowBareName`, such a file counts as a video unless TorBox knows its type.
+function isVideoFile(file, allowBareName = false) {
+  const mimetype = String(file.mimetype || '');
+  if (mimetype.startsWith('video/') || VIDEO_FILE.test(torboxFileName(file))) return true;
+  return allowBareName && !/\.[a-z0-9]{2,4}$/i.test(torboxFileName(file))
+    && (!mimetype || mimetype === 'application/octet-stream');
 }
 
 async function torboxApi(env, path) {
@@ -554,18 +590,26 @@ async function torboxLinkPage(request, env, origin) {
     return htmlResponse(homePage(env, { torboxError: error.message }), 502, noStore);
   }
   const torboxVideos = library.items.length - library.extraCount;
-  const airlocked = library.airlockKnown ? ' airlocked' : '';
-  const torrents = `${library.chosenCount}${airlocked} torrents`;
+  const kinds = Object.entries(library.kinds);
+  // "5 airlocked torrents and 1 airlocked web download". Web downloads are only named when there are some.
+  const sources = kinds
+    .filter(([kind, info]) => kind === 'torrent' || info.chosen > 0)
+    .map(([kind, info]) => `${info.chosen}${info.airlockKnown ? ' airlocked' : ''} `
+      + (info.chosen === 1 ? TORBOX_KINDS[kind].one : TORBOX_KINDS[kind].many))
+    .join(' and ');
   const summary = library.placedCount
-    ? `TorBox connected: ${library.items.length} videos, ${library.extraCount} from your playlist and ${torboxVideos} from ${torrents}. `
-      + `The #TORBOX lines in your playlist place ${library.placedCount} of the torrents; the others play after the playlist, oldest first.`
+    ? `TorBox connected: ${library.items.length} videos, ${library.extraCount} from your playlist and ${torboxVideos} from ${sources}. `
+      + `The #TORBOX lines in your playlist place ${library.placedCount} of these downloads; the others play after the playlist, oldest first.`
     : `TorBox connected: ${library.items.length} videos. First ${library.extraCount} from your playlist, `
-      + `then ${torboxVideos} from ${torrents} (oldest first).`;
+      + `then ${torboxVideos} from ${sources} (oldest first).`;
+  const airlocked = kinds.some(([, info]) => info.airlockKnown) ? ' airlocked' : '';
   const warnings = [
     library.extraError && `Playlist: ${library.extraError}.`,
-    ...library.unmatched.map((words) => `"#TORBOX:${words}" in your playlist matched no downloaded${airlocked} torrent.`),
-    !library.airlockKnown && library.torrentCount > 0
-      && 'TorBox did not say which torrents are airlocked, so all of them are included.',
+    library.webError && `Could not load your TorBox web downloads (${library.webError}), so only torrents are included.`,
+    ...library.unmatched.map((words) => `"#TORBOX:${words}" in your playlist matched nothing. `
+      + `Only${airlocked} TorBox downloads that have finished downloading and contain a video count.`),
+    ...kinds.filter(([, info]) => !info.airlockKnown && info.total > 0)
+      .map(([kind]) => `TorBox did not say which ${TORBOX_KINDS[kind].many} are airlocked, so all of them are included.`),
   ].filter(Boolean).map((text) => `<p class="error">${escapeHtml(text)}</p>`).join('');
   return htmlResponse(installPage({
     summary,
