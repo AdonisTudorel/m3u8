@@ -10,10 +10,10 @@
   "observability": { "enabled": true },
   "vars": {
     // The videos in this M3U playlist play first in the TorBox playlist, in playlist order.
-    // TorBox links inside it are skipped (they expire; the airlocked torrents replace them).
+    // TorBox links inside it are skipped (they expire; the airlocked TorBox downloads replace them).
     // Uses the gist's latest version, so editing the gist updates the playlist.
-    // A line "#TORBOX:<words from a torrent name>" plays that TorBox torrent at that spot instead of
-    // at the end; as the gist's last line it plays right after the gist videos.
+    // A line "#TORBOX:<words from a download name>" plays that TorBox torrent or web download at that
+    // spot instead of at the end; as the gist's last line it plays right after the gist videos.
     "PLAYLIST_URL": "https://gist.githubusercontent.com/AdonisTudorel/ef53b96b39487f293f8bd54a78ed9fb2/raw/list.m3u"
   }
   // Secrets (set them in the dashboard or with `npx wrangler secret put <NAME>`):
